@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>浚鍵管理有限公司 · 乘客專用端</title>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0a0f1a; color: #e2e8f0; min-height: 100vh; padding: 16px; }
+.header { text-align: center; margin-bottom: 20px; }
+.header h1 { font-size: 20px; color: #38bdf8; font-weight: 800; }
+.card { background: #1e293b; border-radius: 16px; padding: 18px; margin-bottom: 14px; border: 1px solid #334155; }
+.card-title { font-size: 15px; font-weight: 700; color: #94a3b8; margin-bottom: 10px; }
+.btn { width: 100%; padding: 16px; border: none; border-radius: 12px; font-size: 16px; font-weight: 700; cursor: pointer; text-align: center; }
+.btn-primary { background: #0ea5e9; color: #fff; }
+.btn-success { background: #22c55e; color: #fff; }
+.btn-outline { background: transparent; border: 1px solid #334155; color: #94a3b8; }
+.input-group { margin-bottom: 12px; }
+.input-group label { display: block; font-size: 13px; color: #94a3b8; margin-bottom: 4px; }
+.input-group input, .input-group select { width: 100%; padding: 14px; border-radius: 10px; border: 1px solid #334155; background: #0f172a; color: #f1f5f9; font-size: 16px; }
+.toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); background: #1e293b; color: #fff; padding: 12px 24px; border-radius: 10px; font-size: 14px; z-index: 9999; opacity: 0; transition: opacity 0.3s; border: 1px solid #334155; }
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🧍 乘客專用預約與追蹤端</h1>
+  <div style="font-size:12px;color:#64748b;margin-top:2px;">浚鍵管理有限公司</div>
+</div>
+
+<div id="passenger-app">
+  <div id="login-view" class="card">
+    <div class="card-title">📱 乘客登入</div>
+    <div class="input-group"><label>電話號碼 (8位數字)</label><input type="tel" id="p-phone" maxlength="8" placeholder="例如: 91234567"></div>
+    <div class="input-group"><label>您的姓名</label><input type="text" id="p-name" placeholder="例如: 陳先生"></div>
+    <button class="btn btn-primary" onclick="passengerLogin()">立即登入 / 預約</button>
+  </div>
+
+  <div id="main-view" style="display:none;">
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div id="p-welcome" style="font-size:16px; font-weight:700; color:#fff;">👤 乘客</div>
+          <div id="p-phone-disp" style="font-size:12px; color:#64748b;"></div>
+        </div>
+        <button class="btn btn-outline" style="width:auto; padding:6px 12px; font-size:12px;" onclick="passengerLogout()">登出</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🚐 選擇班次留位</div>
+      <div class="input-group">
+        <label>選擇時段班次</label>
+        <select id="p-shift-time">
+          <option value="06:20">06:20 (早更)</option>
+          <option value="06:30">06:30 (早更)</option>
+          <option value="06:40">06:40 (早更)</option>
+          <option value="06:50">06:50 (早更)</option>
+          <option value="18:15">18:15 (晚更)</option>
+          <option value="18:30">18:30 (晚更)</option>
+          <option value="18:45">18:45 (晚更)</option>
+          <option value="19:00">19:00 (晚更)</option>
+        </select>
+      </div>
+      <div class="input-group">
+        <label>預約人數</label>
+        <select id="p-seats"><option value="1">1 位</option><option value="2">2 位</option></select>
+      </div>
+      <button class="btn btn-success" onclick="submitBooking()">送出留位申請</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📋 我的留位狀態</div>
+      <div id="p-my-bookings" style="font-size:14px; color:#94a3b8;">載入中...</div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyAX7Zy5br1ozGOGxHvDeFNY-Ldcjjw8Qgc",
+  authDomain: "triple-login-version.firebaseapp.com",
+  databaseURL: "https://triple-login-version-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "triple-login-version",
+  storageBucket: "triple-login-version.firebasestorage.app",
+  messagingSenderId: "66459706459",
+  appId: "1:66459706459:web:28f99a455652f393da0b7e"
+};
+if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const auth = firebase.auth();
+
+let currentPassenger = JSON.parse(localStorage.getItem('passenger_session') || 'null');
+
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function getToday() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+async function passengerLogin() {
+  const phone = document.getElementById('p-phone').value.trim();
+  const name = document.getElementById('p-name').value.trim();
+  if (!/^\d{8}$/.test(phone)) { toast('請輸入8位數字電話號碼'); return; }
+  if (!name) { toast('請輸入姓名'); return; }
+  
+  await auth.signInAnonymously();
+  currentPassenger = { phone, name };
+  localStorage.setItem('passenger_session', JSON.stringify(currentPassenger));
+  toast('登入成功');
+  initPassengerUI();
+}
+
+function passengerLogout() {
+  currentPassenger = null;
+  localStorage.removeItem('passenger_session');
+  initPassengerUI();
+}
+
+function initPassengerUI() {
+  if (currentPassenger) {
+    document.getElementById('login-view').style.display = 'none';
+    document.getElementById('main-view').style.display = 'block';
+    document.getElementById('p-welcome').textContent = '👤 ' + currentPassenger.name;
+    document.getElementById('p-phone-disp').textContent = currentPassenger.phone;
+    loadMyBookings();
+  } else {
+    document.getElementById('login-view').style.display = 'block';
+    document.getElementById('main-view').style.display = 'none';
+  }
+}
+
+async function submitBooking() {
+  if (!currentPassenger) return;
+  const time = document.getElementById('p-shift-time').value;
+  const seats = parseInt(document.getElementById('p-seats').value);
+  const today = getToday();
+  const sid = today + '_' + time.replace(':', '');
+
+  const bookingData = {
+    scheduleId: sid,
+    date: today,
+    time: time,
+    passengerName: currentPassenger.name,
+    passengerPhone: currentPassenger.phone,
+    seats: seats,
+    status: 'pending',
+    createdAt: Date.now()
+  };
+
+  await db.ref('booking/' + today).push(bookingData);
+  toast('✅ 留位申請已送出，等待司機確認');
+  loadMyBookings();
+}
+
+function loadMyBookings() {
+  const today = getToday();
+  const container = document.getElementById('p-my-bookings');
+  db.ref('booking/' + today).on('value', snap => {
+    const data = snap.val() || {};
+    let html = '';
+    Object.values(data).forEach(b => {
+      if (b.passengerPhone === currentPassenger.phone && b.status !== 'cancelled') {
+        let statusText = '⏳ 等待司機確認';
+        let color = '#f59e0b';
+        if (b.status === 'reserved') { statusText = '✅ 已確認留位'; color = '#22c55e'; }
+        else if (b.status === 'boarded') { statusText = '🚐 已上車'; color = '#38bdf8'; }
+
+        html += `
+          <div style="background:#0f172a; padding:10px; border-radius:8px; margin-bottom:8px; border-left:4px solid ${color};">
+            <div style="font-weight:700; color:#fff;">${b.time} 班次 (${b.seats}位)</div>
+            <div style="font-size:13px; color:${color}; font-weight:600; margin-top:4px;">${statusText} ${b.confirmedBy ? '· 車牌: '+b.confirmedBy : ''}</div>
+          </div>
+        `;
+      }
+    });
+    container.innerHTML = html || '<div style="color:#888;">您今日暫無預約記錄</div>';
+  });
+}
+
+window.onload = () => { initPassengerUI(); };
+</script>
+</body>
+</html>
